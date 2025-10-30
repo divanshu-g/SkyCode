@@ -2,34 +2,44 @@ require('dotenv').config();
 const { exec }= require('child_process');
 const path = require('path');
 const fs = require('fs');
-const { PutObjectCommand, S3Client, S3 } =  require('@aws-sdk/client-s3');
+const { PutObjectCommand, S3Client } =  require('@aws-sdk/client-s3');
 const mime = require('mime-types')
 const Redis = require('ioredis')
 
 
-const PROJECT_ID = process.env.PROJECT_ID;
-const REGION = process.env.AWS_REGION;
+const PROJECT_ID = process.env.PROJECT_ID || 'local-test-project';
+const REGION = process.env.AWS_REGION || 'ap-south-1';
 const S3_BUCKET = process.env.S3_BUCKET;
 const REDIS_URL = process.env.REDIS_URL;
+
+if(!S3_BUCKET){
+    console.error('S3_Bucket aborting');
+    process.exit(1);
+}
+
+if(!REDIS_URL){
+    console.error('REDIS_URL aborting');
+    process.exit(1);
+}
 
 const publisher = new Redis(REDIS_URL)
 
 function publishLog(log){
-    publisher.publish(`logs: ${PROJECT_ID}`, JSON.stringify({ log }));
+    publisher.publish(`logs:${PROJECT_ID}`, JSON.stringify({ log }));
 }
 
-const s3Client = new S3Client({
+const s3Client = new S3Client({ 
     region: REGION,
-    credentials : {
-        accessKeyId : process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey : process.env.AWS_SECRET_ACCESS_KEY
+    credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
     }
-})
-
+ })
 
 async function init(){
     console.log('Execuiting script.js');
     publishLog('Build Started..')
+    
     const outDirPath = path.join(__dirname, 'output');
 
     const p = exec(`cd ${outDirPath} && npm install && npm run build`);
@@ -76,7 +86,18 @@ async function init(){
         }
         publishLog("Done...");
         console.log("Done...");
-        
+
+        // // notify status channel that build completed successfully
+        // publisher.publish(`build:status:${PROJECT_ID}`, JSON.stringify({ status: 'completed', project: PROJECT_ID }));
+
+        // // if you also want a "started" message earlier, add when build begins:
+        // // publisher.publish(`build:status:${PROJECT_ID}`, JSON.stringify({ status: 'started', project: PROJECT_ID }));
+
+
+        await publisher.quit();
+        console.log("Closed Redis connection. Exiting...");
+        process.exit(0);
+
     })    
 }
 
